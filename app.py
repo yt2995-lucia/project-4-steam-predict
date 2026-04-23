@@ -38,9 +38,9 @@ st.set_page_config(
 @st.cache_data
 def load_features() -> pd.DataFrame:
     """读取处理好的特征表。跑完 feature engineering 后替换这里。"""
-    path = Path("data/processed/features.parquet")
+    path = Path("data/processed/features.csv")
     if path.exists():
-        return pd.read_parquet(path)
+        return pd.read_csv(path)
     # 占位: 返回空表, 后面的 tab 会显示提示
     return pd.DataFrame()
 
