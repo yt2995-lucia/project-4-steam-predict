@@ -1,0 +1,112 @@
+# =========================================
+# macOS / Windows 系统垃圾文件
+# =========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# =========================================
+# Python
+# =========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# =========================================
+# 虚拟环境
+# =========================================
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# =========================================
+# Jupyter Notebook
+# =========================================
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/*
+*.ipynb_checkpoints
+
+# =========================================
+# IDE / 编辑器
+# =========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# =========================================
+# 测试 / 覆盖率
+# =========================================
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+
+# =========================================
+# 环境变量 / 密钥 (绝不能进 git)
+# =========================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+secrets.toml
+.streamlit/secrets.toml
+
+# =========================================
+# 模型 / 大文件 (训练完之后产生的, 太大不适合 git)
+# =========================================
+# 等真训练了模型再视情况启用下面这几行
+# models/*.pkl
+# models/*.joblib
+# models/*.h5
+
+# =========================================
+# 日志 / 临时文件
+# =========================================
+*.log
+logs/
+tmp/
+temp/
+
+# =========================================
+# 项目特定 (本项目不需要追踪的)
+# =========================================
+# 早期残留, 已经被 data/processed/unsupervised_output.csv 替代
+# 但万一组员又在根目录生成一个, 自动屏蔽
+/unsupervised_output.csv
+
+# 之前 parquet→csv 切换的残留预览文件, 不再需要
+data/interim/cleaned_preview.csv
