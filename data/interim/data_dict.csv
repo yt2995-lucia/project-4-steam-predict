@@ -1,0 +1,57 @@
+column_name,dtype,source,group,description,example,notes
+appid,int64,Steam / SteamSpy,identifier,"Steam 游戏唯一 ID,所有表的主键",383870,"和 Steam 商店 URL 里的 ID 一致,store.steampowered.com/app/<appid>"
+name,str,Steam API,identifier,游戏名,Firewatch,
+type,str,Steam API,identifier,"资源类型,应始终是 'game'",game,"清洗时已过滤 dlc / demo,只保留 game"
+is_free,bool,Steam API,price,是否免费,False,
+price_usd,float,"Steam API (fallback: SteamSpy)",price,"当前价格(美元)。免费游戏 = 0.0",19.99,"Steam API 缺失时用 SteamSpy 补"
+required_age,int,Steam API,content,"ESRB 年龄限制。0 = 无限制",0,"Steam API 有时返回字符串 '17',已统一转 int"
+n_supported_languages,int,Steam API,content,支持的语言数,7,"从 HTML 字符串解析,去掉标签和 *audio 说明"
+supports_windows,bool,Steam API,platform,是否支持 Windows,True,
+supports_mac,bool,Steam API,platform,是否支持 Mac,True,
+supports_linux,bool,Steam API,platform,是否支持 Linux,True,
+genres,JSON-list[str],Steam API,classification,官方分类(宽泛),"[""Adventure"", ""Indie""]","CSV 里是 JSON 字符串,读回来用 json.loads"
+categories,JSON-list[str],Steam API,classification,"游戏功能标签 (Single-player, Multi-player, Steam Cloud 等)","[""Single-player"", ""Steam Cloud""]",CSV 里是 JSON 字符串
+n_achievements,int,Steam API,content,成就数,10,
+n_screenshots_api,int,Steam API,content,Steam API 返回的官方截图数,7,
+n_movies,int,Steam API,content,预告片 / 宣传视频数,6,
+n_dlc,int,Steam API,content,DLC 数量,1,
+metacritic_score,float,Steam API,quality,"Metacritic 评分 (0-100)",81.0,"约 43% 的游戏缺失此字段"
+release_date,datetime,Steam API,date,发售日期,2016-02-09,
+coming_soon,bool,Steam API,date,是否未发售,False,清洗时已过滤 True 的
+developers,JSON-list[str],Steam API,people,开发商列表(官方),"[""Campo Santo""]",CSV 里是 JSON 字符串
+publishers,JSON-list[str],Steam API,people,发行商列表(官方),"[""Panic"", ""Campo Santo""]",CSV 里是 JSON 字符串
+short_description,str,Steam API,description,一句话简介,"""Firewatch is a single-player first-person mystery...""","✅ 推荐给 TF-IDF / LDA 用,短小干净"
+detailed_description_raw,str,Steam API,description,商店页完整描述,"""<h1>About the Game</h1><p>...</p>""","⚠️ 带 HTML 标签,不要直接喂模型"
+recommendations_total,float,Steam API,popularity,Steam 官方'推荐数'计数,91401.0,"部分游戏缺失 (7.3%)"
+developer,str,SteamSpy,people,"开发商名(SteamSpy 的字段,可能是单个字符串或逗号分隔)",Campo Santo,和 developers 冗余但格式不同
+publisher,str,SteamSpy,people,发行商名(SteamSpy),"Panic, Campo Santo",和 publishers 冗余
+positive,int,SteamSpy,reviews,好评数,81777,**用来计算 target**
+negative,int,SteamSpy,reviews,差评数,8661,**用来计算 target**
+userscore,float,SteamSpy,quality,SteamSpy 的用户评分,0.0,大多数为 0 (已弃用字段)
+owners_min,int,SteamSpy,popularity,拥有数区间下界,2000000,"SteamSpy 以区间形式给,如 '2M .. 5M'"
+owners_max,int,SteamSpy,popularity,拥有数区间上界,5000000,
+owners_mid,int,SteamSpy,popularity,拥有数区间中点,3500000,"(owners_min + owners_max) / 2"
+average_forever,float,SteamSpy,playtime,玩家平均累计游玩时间(分钟),0.0,"0 表示 SteamSpy 没给数据"
+average_2weeks,float,SteamSpy,playtime,最近两周平均游玩时间(分钟),0.0,
+median_forever,float,SteamSpy,playtime,玩家累计游玩时间中位数(分钟),0.0,
+median_2weeks,float,SteamSpy,playtime,最近两周游玩时间中位数(分钟),0.0,
+steamspy_price_usd,float,SteamSpy,price,SteamSpy 给的当前价格(美元),19.99,和 price_usd 冗余,用作备份
+steamspy_initialprice_usd,float,SteamSpy,price,SteamSpy 给的原价(美元),19.99,
+ccu,int,SteamSpy,popularity,"昨天的峰值在线人数 (Concurrent Users)",81,
+tag_dict,JSON-dict[str;int],SteamSpy,tags,"玩家打的社区 tag 及投票数","{""Adventure"": 1883, ""Story Rich"": 1821, ...}","✅ 核心特征。CSV 里是 JSON 字符串,读回用 json.loads"
+n_tags,int,SteamSpy,tags,tag 数量(通常 ≤ 20),20,SteamSpy 最多返回 20 个
+store_description,str,Scraper,description,爬虫抓的商店页描述(已去 HTML),"""About This Game Firewatch is a single-player first-person mystery...""","✅ 比 detailed_description_raw 更干净"
+store_user_tags,JSON-list[str],Scraper,tags,"商店页面上显示的玩家 tag(只有名字,没计数)","[""Adventure"", ""Story Rich"", ...]",和 tag_dict 的 keys 高度重叠
+n_screenshots_scraped,int,Scraper,content,爬虫抓的商店页截图数,0,可能为 0(爬虫失败)
+description_len_chars,int,Derived,description,store_description 的字符数,1937,
+description_len_words,int,Derived,description,store_description 的词数,339,
+reviews,JSON-list[str],Scraper,reviews,爬到的用户评论原文列表,"[""Absolute cinema"", ""10/10"", ...]","CSV 里是 JSON 字符串。每款游戏最多爬 30 条"
+n_reviews_scraped,int,Scraper,reviews,爬到的评论条数,30,上限 30
+avg_review_len,float,Derived,reviews,爬到的评论的平均字符数,176.8,
+total_reviews,int,Derived,reviews,总评论数 = positive + negative,90438,**用来计算 target**
+positive_review_ratio,float,Derived,reviews,好评率 = positive / total_reviews,0.9042,"范围 [0, 1]。total_reviews=0 时为 NaN"
+is_successful,Int64 (nullable),Derived,**TARGET**,"🎯 目标变量。1 = 成功,0 = 不成功,NA = 评论数为 0 不判定",1,"定义: (positive_review_ratio >= 0.80) AND (total_reviews >= 500)"
+release_year,float,Derived,date,发行年,2016.0,从 release_date 拆出
+release_month,float,Derived,date,发行月 (1-12),2.0,
+release_quarter,float,Derived,date,发行季度 (1-4),1.0,
+release_dow,float,Derived,date,"发行的星期几 (0=Monday, 6=Sunday)",1.0,Steam 上周二发售最多
