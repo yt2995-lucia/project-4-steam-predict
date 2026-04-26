@@ -9,7 +9,7 @@ import os
 # 0. Read Data
 # =========================
 
-df = pd.read_csv("cleaned.csv")
+df = pd.read_csv("data/interim/cleaned.csv")
 
 output_dir = "figures/groupA"
 os.makedirs(output_dir, exist_ok=True)
