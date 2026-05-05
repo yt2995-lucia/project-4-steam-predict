@@ -1,0 +1,65 @@
+{
+    "random_state": 42,
+    "train_size": 0.6,
+    "validation_size": 0.2,
+    "test_size": 0.2,
+    "n_splits_cv": 5,
+    "scoring_metric": "roc_auc",
+    "features_shape": [
+        995,
+        93
+    ],
+    "target_shape": [
+        995,
+        2
+    ],
+    "unsupervised_output_shape": [
+        998,
+        14
+    ],
+    "merged_data_shape": [
+        995,
+        94
+    ],
+    "X_shape": [
+        995,
+        92
+    ],
+    "target_distribution": {
+        "1": 730,
+        "0": 265
+    },
+    "target_ratio": {
+        "1": 0.7336683417085427,
+        "0": 0.2663316582914573
+    },
+    "split_shapes": {
+        "train": [
+            597,
+            92
+        ],
+        "validation": [
+            199,
+            92
+        ],
+        "test": [
+            199,
+            92
+        ]
+    },
+    "split_target_ratios": {
+        "train": {
+            "1": 0.7336683417085427,
+            "0": 0.2663316582914573
+        },
+        "validation": {
+            "1": 0.7336683417085427,
+            "0": 0.2663316582914573
+        },
+        "test": {
+            "1": 0.7336683417085427,
+            "0": 0.2663316582914573
+        }
+    },
+    "note": "Train set is used for 5-fold CV hyperparameter tuning. Validation set is used for quality checking after tuning. Test set is kept untouched for final model evaluation."
+}
