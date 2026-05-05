@@ -1,18 +1,14 @@
-# Pinned versions to match the environment used to train the joblib models.
-# DO NOT loosen these — sklearn 1.6+ breaks the saved SimpleImputer pipeline.
+# Streamlit Cloud only needs the libraries imported by app.py.
+# The pipeline scripts under src/ have their own heavier deps (umap-learn,
+# matplotlib, seaborn, etc.) that are NOT required to serve the dashboard.
 
-# Core data science stack
+# Pinned versions to match the environment that produced the joblib models.
+# DO NOT loosen scikit-learn — version 1.6+ breaks the saved SimpleImputer.
+
+streamlit==1.39.0
 pandas==2.2.3
 numpy==1.26.4
 scikit-learn==1.5.2
 xgboost==2.1.1
 joblib==1.4.2
-
-# Streamlit dashboard
-streamlit==1.39.0
 plotly==5.24.1
-
-# EDA / unsupervised (used by src/ pipeline scripts, not the app itself)
-matplotlib==3.9.2
-seaborn==0.13.2
-umap-learn==0.5.6
