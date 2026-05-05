@@ -1,15 +1,18 @@
+# Pinned versions to match the environment used to train the joblib models.
+# DO NOT loosen these — sklearn 1.6+ breaks the saved SimpleImputer pipeline.
+
 # Core data science stack
-pandas>=2.0
-numpy>=1.24
-scikit-learn>=1.3
-xgboost>=2.0
-joblib>=1.3
+pandas==2.2.3
+numpy==1.26.4
+scikit-learn==1.5.2
+xgboost==2.1.1
+joblib==1.4.2
 
 # Streamlit dashboard
-streamlit>=1.30
-plotly>=5.18
+streamlit==1.39.0
+plotly==5.24.1
 
-# EDA / unsupervised (if running pipeline scripts from src/)
-matplotlib>=3.7
-seaborn>=0.12
-umap-learn>=0.5
+# EDA / unsupervised (used by src/ pipeline scripts, not the app itself)
+matplotlib==3.9.2
+seaborn==0.13.2
+umap-learn==0.5.6
