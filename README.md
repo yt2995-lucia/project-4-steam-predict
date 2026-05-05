@@ -44,8 +44,6 @@ XGBoost won: highest ROC-AUC and F1, and recall above 0.94 — useful here becau
 ```
 .
 ├── app.py                          Streamlit dashboard
-├── collect_data.py                 API pulls + scraping
-├── clean_data.py                   cleaning pipeline
 ├── requirements.txt                pinned deps for Streamlit Cloud
 ├── runtime.txt                     python-3.12
 ├── data/
@@ -53,11 +51,13 @@ XGBoost won: highest ROC-AUC and F1, and recall above 0.94 — useful here becau
 │   ├── interim/cleaned.csv
 │   └── processed/                  features.csv, target.csv, unsupervised_output.csv
 ├── src/
-│   ├── build_features.py
+│   ├── collect_data.py             API pulls + scraping
+│   ├── clean_data.py               cleaning pipeline
 │   ├── groupA_descriptive_eda.py
+│   ├── groupB_unsupervised.ipynb   unsupervised structure (K-Means, UMAP, LDA)
+│   ├── build_features.py
 │   ├── model_fitting.py
 │   └── Evaluation.ipynb
-├── GroupB/GroupB.ipynb             unsupervised structure (K-Means, UMAP, LDA)
 ├── models/                         joblib-saved trained pipelines
 ├── outputs/modeling/               CV results, run metadata
 └── figures/groupA, groupB/         generated figures
@@ -82,12 +82,12 @@ On macOS, XGBoost additionally needs OpenMP. If you see a `libxgboost.dylib coul
 brew install libomp
 ```
 
-To reproduce the pipeline from scratch:
+To reproduce the pipeline from scratch (all commands run from the project root):
 
 ```
-python collect_data.py
-python clean_data.py
-# then open GroupB/GroupB.ipynb and run all cells
+python src/collect_data.py
+python src/clean_data.py
+# then open src/groupB_unsupervised.ipynb and run all cells
 python src/build_features.py
 python src/model_fitting.py
 # evaluation lives in src/Evaluation.ipynb

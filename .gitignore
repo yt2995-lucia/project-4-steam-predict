@@ -1,5 +1,5 @@
 # =========================================
-# macOS / Windows 系统垃圾文件
+# OS junk files
 # =========================================
 .DS_Store
 .DS_Store?
@@ -36,7 +36,7 @@ wheels/
 MANIFEST
 
 # =========================================
-# 虚拟环境
+# Virtual environments
 # =========================================
 venv/
 .venv/
@@ -46,14 +46,14 @@ env.bak/
 venv.bak/
 
 # =========================================
-# Jupyter Notebook
+# Jupyter
 # =========================================
 .ipynb_checkpoints/
 */.ipynb_checkpoints/*
 *.ipynb_checkpoints
 
 # =========================================
-# IDE / 编辑器
+# IDE / editors
 # =========================================
 .vscode/
 .idea/
@@ -62,7 +62,7 @@ venv.bak/
 *~
 
 # =========================================
-# 测试 / 覆盖率
+# Test / coverage
 # =========================================
 .coverage
 .coverage.*
@@ -75,7 +75,7 @@ coverage.xml
 *.cover
 
 # =========================================
-# 环境变量 / 密钥 (绝不能进 git)
+# Secrets — never commit
 # =========================================
 .env
 .env.local
@@ -86,15 +86,14 @@ secrets.toml
 .streamlit/secrets.toml
 
 # =========================================
-# 模型 / 大文件 (训练完之后产生的, 太大不适合 git)
+# Large model files (uncomment if needed)
 # =========================================
-# 等真训练了模型再视情况启用下面这几行
 # models/*.pkl
 # models/*.joblib
 # models/*.h5
 
 # =========================================
-# 日志 / 临时文件
+# Logs / scratch
 # =========================================
 *.log
 logs/
@@ -102,11 +101,11 @@ tmp/
 temp/
 
 # =========================================
-# 项目特定 (本项目不需要追踪的)
+# Project-specific stragglers
 # =========================================
-# 早期残留, 已经被 data/processed/unsupervised_output.csv 替代
-# 但万一组员又在根目录生成一个, 自动屏蔽
+# Old top-level artifact, replaced by data/processed/unsupervised_output.csv.
+# Block re-creation in case a teammate accidentally writes it again.
 /unsupervised_output.csv
 
-# 之前 parquet→csv 切换的残留预览文件, 不再需要
+# Leftover preview file from the old parquet -> csv switch.
 data/interim/cleaned_preview.csv

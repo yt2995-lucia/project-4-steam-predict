@@ -1,23 +1,25 @@
 """
-collect_data.py — 一键抓取 Steam 游戏数据
+collect_data.py — One-shot Steam game data collection.
 
-这一个脚本干三件事：
-    1. 从 Steam 官方 API 拿游戏基础信息 (价格、发售日、开发商、tags...)
-    2. 从 SteamSpy 拿玩家数/销量估算
-    3. 爬 Steam 商店页面拿游戏描述和用户评论
+This script does three things:
+    1. Pull basic game metadata from the official Steam Web API
+       (price, release date, developer, tags, ...)
+    2. Pull owner / playtime estimates from SteamSpy
+    3. Scrape Steam store pages for long descriptions and user reviews
 
-运行方式:
+Usage:
     pip install requests beautifulsoup4 lxml tqdm pandas
-    python collect_data.py --limit 100       # 先小规模测试
-    python collect_data.py --limit 5000      # 正式跑
+    python src/collect_data.py --limit 100       # quick smoke test
+    python src/collect_data.py --limit 5000      # full run
 
-结果会保存到 ./data/raw/ 文件夹:
-    - steam_details.jsonl      每款游戏一行 JSON, 包含基础信息
-    - steamspy.csv             玩家统计
-    - store_pages.jsonl        游戏描述 + tags
-    - reviews.jsonl            用户评论原文
+Outputs go to ./data/raw/ :
+    - steam_details.jsonl      one JSON object per game (basic metadata)
+    - steamspy.csv             player-count statistics
+    - store_pages.jsonl        descriptions + user-defined tags
+    - reviews.jsonl            raw user reviews
 
-预计跑 5000 款游戏要 2-3 小时 (因为要礼貌地间隔请求, 避免被 ban)。
+A 5000-game run takes 2-3 hours because of polite rate limiting
+(without the delays the Steam / SteamSpy endpoints will block you).
 """
 from __future__ import annotations
 
@@ -33,7 +35,7 @@ from tqdm import tqdm
 
 
 # ============================================================
-# 配置
+# Configuration
 # ============================================================
 STEAM_APPLIST_URL = "https://api.steampowered.com/ISteamApps/GetAppList/v0002/?format=json"
 STEAM_APPDETAILS_URL = "https://store.steampowered.com/api/appdetails"
@@ -41,29 +43,30 @@ STEAMSPY_URL = "https://steamspy.com/api.php"
 STORE_URL = "https://store.steampowered.com/app/{appid}"
 REVIEWS_URL = "https://store.steampowered.com/appreviews/{appid}"
 
-# 礼貌延时 — Steam/SteamSpy 都会限流
+# Polite delays — both Steam and SteamSpy rate-limit aggressive callers.
 DELAY_STEAM = 1.5
 DELAY_STEAMSPY = 1.0
 DELAY_SCRAPE = 2.0
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (5243 course project)"}
-# 绕过年龄验证页面的 cookie
+# Cookies that bypass the age-verification interstitial.
 AGE_COOKIES = {"birthtime": "568022401", "mature_content": "1"}
 
 
 # ============================================================
-# Part 1: 获取游戏列表 (通过 SteamSpy, 比 Steam 官方 API 更稳)
+# Part 1: Game list (fetched via SteamSpy — more reliable than Steam's
+# official GetAppList endpoint)
 # ============================================================
 def fetch_steam_applist(n_pages: int = 1) -> pd.DataFrame:
     """
-    从 SteamSpy 拿热门游戏列表。
-    每页返回 ~1000 款游戏 (按 owners 估算排序)。
-    n_pages=1 就是 top 1000 游戏, 足够做课堂项目了。
+    Pull a list of popular games from SteamSpy.
+    Each page returns ~1000 games, sorted by ownership estimate.
+    n_pages=1 is the top 1000 — enough for a course project.
 
-    为什么用 SteamSpy 而不是 Steam 官方 GetAppList?
-    - Steam 的 GetAppList 在某些网络环境下会 404
-    - SteamSpy 稳定, 而且直接返回的就是"有意义的"热门游戏
-      (Steam 全量列表里一半是 DLC/soundtrack, 没法用)
+    Why SteamSpy instead of Steam's official GetAppList?
+    - Steam's GetAppList sometimes 404s in certain network environments.
+    - SteamSpy is stable and already filters out the noise; Steam's full
+      app list is roughly half DLC and soundtracks, which we don't want.
     """
     print(f"[1/4] Fetching game list from SteamSpy ({n_pages} page × 1000 games)...")
     rows = []
@@ -93,7 +96,7 @@ def fetch_steam_applist(n_pages: int = 1) -> pd.DataFrame:
 
 
 def fetch_steam_details(appid: int) -> dict | None:
-    """对单个 appid 拿详细信息; 失败返回 None。"""
+    """Fetch full metadata for a single appid; return None on failure."""
     try:
         resp = requests.get(
             STEAM_APPDETAILS_URL,
@@ -105,10 +108,10 @@ def fetch_steam_details(appid: int) -> dict | None:
         if not data.get("success"):
             return None
         payload = data["data"]
-        # 只保留"游戏"类型, 跳过 soundtrack / software / DLC
+        # Keep only items typed as "game" — drop soundtracks, software, DLC.
         if payload.get("type") != "game":
             return None
-        payload["appid"] = appid  # 确保存下 appid
+        payload["appid"] = appid  # ensure appid is preserved in the record
         return payload
     except Exception as e:
         print(f"       [warn] appid={appid}: {e}")
@@ -116,7 +119,7 @@ def fetch_steam_details(appid: int) -> dict | None:
 
 
 def collect_steam_details(appids: list[int], out_path: Path) -> list[int]:
-    """对每个 appid 拿详情并保存; 返回成功抓到的 appid 列表。"""
+    """Fetch details for every appid and write to disk; return successful ids."""
     print(f"[2/4] Fetching Steam details for {len(appids)} apps...")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     successful_ids = []
@@ -163,23 +166,24 @@ def collect_steamspy(appids: list[int], out_path: Path) -> None:
 
 
 # ============================================================
-# Part 3: 商店页面 + 评论爬虫
+# Part 3: Store-page + review scraper
 # ============================================================
 def scrape_store_page(appid: int) -> dict:
-    """抓取游戏商店页面的描述、用户标签、截图数量。"""
+    """Scrape the description, user tags, and screenshot count from a store page."""
     url = STORE_URL.format(appid=appid)
     resp = requests.get(url, headers=HEADERS, cookies=AGE_COOKIES, timeout=20)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "lxml")
 
-    # 长描述
+    # Long description
     desc_node = soup.select_one("#game_area_description")
     description = desc_node.get_text(" ", strip=True) if desc_node else None
 
-    # 用户标签 (比官方 genre 细, 比如 "Roguelike", "Souls-like")
+    # User-defined tags — finer-grained than official genres
+    # (e.g. "Roguelike", "Souls-like").
     tags = [a.get_text(strip=True) for a in soup.select("a.app_tag")]
 
-    # 媒体数量
+    # Media counts
     n_screenshots = len(soup.select(".highlight_screenshot"))
 
     return {
@@ -191,7 +195,7 @@ def scrape_store_page(appid: int) -> dict:
 
 
 def scrape_reviews(appid: int, n: int = 30) -> list[str]:
-    """抓取最近 n 条英文评论的正文。"""
+    """Scrape the most recent n English reviews."""
     params = {
         "json": 1,
         "filter": "recent",
@@ -231,7 +235,7 @@ def collect_scraped(appids: list[int], out_dir: Path, n_reviews: int = 30) -> No
 
 
 # ============================================================
-# 主流程
+# Main entry point
 # ============================================================
 def main():
     parser = argparse.ArgumentParser(description="Collect Steam game data from multiple sources.")
@@ -247,27 +251,27 @@ def main():
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: 拿全量 applist, 随机采样 --limit 个
+    # Step 1: fetch the full app list and randomly sample --limit games.
     applist = fetch_steam_applist()
     sampled = applist.sample(n=min(args.limit, len(applist)), random_state=args.seed)
     sampled.to_csv(args.out_dir / "sampled_appids.csv", index=False)
     appids_to_fetch = sampled["appid"].astype(int).tolist()
 
-    # Step 2: 官方 API 拿详情; 只保留是 game 的
+    # Step 2: pull official-API details; keep only the rows typed as "game".
     successful_ids = collect_steam_details(
         appids_to_fetch,
         args.out_dir / "steam_details.jsonl",
     )
 
-    # 只对抓到的有效游戏继续后面两步
+    # Only continue downstream work for the games that came back successfully.
     if not successful_ids:
         print("No successful games retrieved — stopping.")
         return
 
-    # Step 3: SteamSpy 统计
+    # Step 3: SteamSpy stats
     collect_steamspy(successful_ids, args.out_dir / "steamspy.csv")
 
-    # Step 4: 商店页面 + 评论
+    # Step 4: store pages + reviews
     collect_scraped(successful_ids, args.out_dir / "scraped", n_reviews=args.n_reviews)
 
     print("\n All done! Check the data/raw/ folder.")

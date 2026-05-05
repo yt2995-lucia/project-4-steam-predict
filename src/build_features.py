@@ -1,39 +1,42 @@
 """
-build_features.py — Feature Engineering pipeline (Step 3 of project)
+build_features.py — Feature engineering pipeline (Step 3 of the project).
 
-输入:
-    data/interim/cleaned.csv               ← Step 1 (clean_data.py) 的输出
-    data/processed/unsupervised_output.csv ← Step 2 (Group B) 修好的输出
+Inputs:
+    data/interim/cleaned.csv               output of clean_data.py (Step 1)
+    data/processed/unsupervised_output.csv output of GroupB unsupervised (Step 2)
 
-输出 (三个文件分开, 便于建模时分别管理 X / y / 展示信息):
-    data/processed/features.csv  ← X, 模型输入矩阵, 只含 pre-release 特征
-    data/processed/target.csv    ← y, 只有 appid + is_successful
-    data/processed/meta.csv      ← appid + name + release_year (给 SHAP / app 显示用)
+Outputs (kept as three files so X / y / display info stay separate):
+    data/processed/features.csv  X — model input matrix, pre-release features only
+    data/processed/target.csv    y — appid + is_successful
+    data/processed/meta.csv      appid + name + release_year (for SHAP / app display)
 
-核心设计原则 — 防止 data leakage:
-    只用游戏发售前 / 设计阶段就能确定的特征。
-    严格排除任何 review / owners / playtime / recommendations 等 "用户行为发生后" 的字段。
+Core design rule — leakage prevention:
+    Only features that are knowable before launch (or at design time) are
+    included. Anything observable only after release — reviews, owner counts,
+    playtime, recommendations, metacritic — is excluded.
 
-特征类别:
-    数值直传      : ~10 列 (price, lang, achievements, screenshots, ...)
-    布尔 0/1      : 4 列  (is_free + 3 个 platform)
-    日期数值化    : 4 列  (year, month, quarter, dow)
-    Genre 多热    : top-12 列 (官方分类, pre-release)
-    Category 多热 : top-15 列 (Single-player / Multi-player / Steam Cloud / ...)
-    Tag 多热      : top-30 列 (社区 tag, 严格说是 post-release, 但反映设计风格)
-    Cluster 独热  : ~5 列 (KMeans cluster, drop_first 防共线)
-    UMAP 坐标    : 2 列  (从 store_user_tags 算出)
-    LDA topic    : 9 列  (10 个 topic - 1 = 9, 因为概率和=1)
+Feature groups:
+    Numeric (~10)        : price, language count, achievements, screenshots, ...
+    Boolean (4)          : is_free + 3 platform flags
+    Date-derived (4)     : year, month, quarter, day-of-week
+    Genre multi-hot (12) : top-12 official genres
+    Category multi-hot (15) : single-player / multi-player / Steam Cloud / ...
+    Tag multi-hot (30)   : top-30 community-defined tags
+    Cluster one-hot      : K-Means cluster id, drop_first to avoid collinearity
+    UMAP coords (2)      : 2D projection from the user-tag space
+    LDA topics (9)       : 10 topics minus 1 (the simplex sums to 1)
 
-数据 leakage 风险标注 (在论文 / presentation 里要诚实声明):
-    - store_user_tags / cluster_id / umap_x / umap_y 都是基于玩家社区 tag 算的, 严格说是
-      post-release. 但这些 tag 反映了游戏的设计风格 (玩法 / 题材 / 画风), 从理论上
-      "一个老练的开发者在设计阶段就能预判自己游戏会被打成什么 tag", 因此我们把它们
-      当作 pre-release 信号. 在 limitations 章节会说明这一点.
-    - LDA topic 是基于 short_description 算的, 是真正的 pre-release 文本, 没有 leakage.
-    - metacritic_score 是发售后才有的 → 完全排除.
+Leakage caveats to disclose in the report:
+    - Community user_tags / cluster_id / umap coordinates are derived from
+      tags assigned by players post-release. We treat them as pre-release
+      proxies on the argument that an experienced developer can anticipate
+      which tags their game will attract at design time. This is a soft
+      assumption and is called out in the limitations section.
+    - LDA topics come from short_description (genuinely pre-release text);
+      no leakage there.
+    - metacritic_score is post-release and is excluded entirely.
 
-运行:
+Usage:
     python src/build_features.py
 """
 from __future__ import annotations
@@ -46,7 +49,7 @@ import pandas as pd
 
 
 # ============================================================
-# 路径配置
+# Paths
 # ============================================================
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CLEANED_CSV = PROJECT_ROOT / "data" / "interim" / "cleaned.csv"
@@ -55,25 +58,25 @@ OUT_DIR = PROJECT_ROOT / "data" / "processed"
 
 
 # ============================================================
-# 配置开关 (实验时可改)
+# Toggles (handy for ablation experiments)
 # ============================================================
 TOP_N_GENRES = 12
 TOP_N_CATEGORIES = 15
 TOP_N_TAGS = 30
-N_TOPICS = 10  # GroupB 设的 LDA topic 数
+N_TOPICS = 10  # number of LDA topics chosen by Group B
 
-# 是否包含潜在 leakage 风险的特征 (论文要说明)
-INCLUDE_USER_TAGS = True   # 社区 tag 的 multi-hot
-INCLUDE_CLUSTER = True     # KMeans cluster id (基于 tag)
-INCLUDE_UMAP = True        # UMAP 坐标 (基于 tag)
-INCLUDE_TOPICS = True      # LDA topic (基于 description, 严格 pre-release)
+# Whether to include features with potential leakage risk (documented in report)
+INCLUDE_USER_TAGS = True   # community-tag multi-hot
+INCLUDE_CLUSTER = True     # K-Means cluster id (tag-based)
+INCLUDE_UMAP = True        # UMAP coordinates (tag-based)
+INCLUDE_TOPICS = True      # LDA topics (description-based, strictly pre-release)
 
 
 # ============================================================
-# 工具函数
+# Helpers
 # ============================================================
 def safe_json_loads(x, default):
-    """cleaned.csv 里 list/dict 列存的是 JSON 字符串, 反序列化用."""
+    """cleaned.csv stores list/dict columns as JSON strings — decode them safely."""
     if pd.isna(x):
         return default
     try:
@@ -83,7 +86,7 @@ def safe_json_loads(x, default):
 
 
 def to_int_bool(x):
-    """把 'True'/'False' 字符串 (或 Python bool) 转成 1/0."""
+    """Coerce 'True' / 'False' strings (or Python bools) into 1 / 0."""
     if pd.isna(x):
         return 0
     s = str(x).strip().lower()
@@ -93,7 +96,7 @@ def to_int_bool(x):
 
 
 def slugify(name: str) -> str:
-    """把 genre / category / tag 名字转成合法的列名后缀."""
+    """Turn a genre / category / tag name into a column-name-safe slug."""
     return (
         str(name)
         .lower()
@@ -106,7 +109,7 @@ def slugify(name: str) -> str:
 
 
 def get_top_n_from_lists(series: pd.Series, n: int) -> list[str]:
-    """对一列 list-of-strings, 统计 value 出现次数, 返回 top n 的 list."""
+    """Given a Series of list-of-strings, return the n most frequent values."""
     counter: dict[str, int] = {}
     for items in series:
         if not isinstance(items, list):
@@ -117,7 +120,7 @@ def get_top_n_from_lists(series: pd.Series, n: int) -> list[str]:
 
 
 def multi_hot(series: pd.Series, top_values: list[str], prefix: str) -> pd.DataFrame:
-    """把一列 list-of-strings 展开成 multi-hot dataframe."""
+    """Expand a Series of list-of-strings into a multi-hot DataFrame."""
     cols: dict[str, list[int]] = {f"{prefix}_{slugify(v)}": [] for v in top_values}
     for items in series:
         items_set = set(items) if isinstance(items, list) else set()
@@ -127,7 +130,7 @@ def multi_hot(series: pd.Series, top_values: list[str], prefix: str) -> pd.DataF
 
 
 # ============================================================
-# 1. 读数据
+# 1. Load data
 # ============================================================
 def load_data():
     print("=" * 60)
@@ -138,7 +141,7 @@ def load_data():
     print(f"  cleaned.csv             : {cleaned.shape}")
     print(f"  unsupervised_output.csv : {unsup.shape}")
 
-    # 反序列化 list 列
+    # Decode list columns
     cleaned["genres_list"] = cleaned["genres"].apply(lambda x: safe_json_loads(x, []))
     cleaned["categories_list"] = cleaned["categories"].apply(lambda x: safe_json_loads(x, []))
     cleaned["tags_list"] = cleaned["store_user_tags"].apply(lambda x: safe_json_loads(x, []))
@@ -147,7 +150,7 @@ def load_data():
 
 
 # ============================================================
-# 2. 数值 / 布尔 / 日期特征
+# 2. Numeric / boolean / date features
 # ============================================================
 def build_simple_features(df: pd.DataFrame) -> pd.DataFrame:
     print("\n--- Step 2: Building simple (numeric/bool/date) features ---")
@@ -155,7 +158,7 @@ def build_simple_features(df: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame()
     out["appid"] = df["appid"]
 
-    # Numeric pre-release 特征
+    # Numeric pre-release features
     numeric_cols = [
         "price_usd",
         "required_age",
@@ -180,7 +183,7 @@ def build_simple_features(df: pd.DataFrame) -> pd.DataFrame:
             out[col] = df[col].apply(to_int_bool)
     print(f"  boolean  : {len([c for c in bool_cols if c in df.columns])} cols")
 
-    # 日期 (release_year/month/quarter/dow 已在 cleaned.csv 里拆好)
+    # Date features (release_year/month/quarter/dow already split in cleaned.csv)
     date_cols = ["release_year", "release_month", "release_quarter", "release_dow"]
     for col in date_cols:
         if col in df.columns:
@@ -192,7 +195,7 @@ def build_simple_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================
-# 3. List 列展开 (genre / category / tag)
+# 3. Expand list columns (genre / category / tag)
 # ============================================================
 def build_list_features(df: pd.DataFrame, simple_df: pd.DataFrame) -> pd.DataFrame:
     print("\n--- Step 3: Building multi-hot features from list columns ---")
@@ -225,7 +228,7 @@ def build_list_features(df: pd.DataFrame, simple_df: pd.DataFrame) -> pd.DataFra
 
 
 # ============================================================
-# 4. 加入 unsupervised 输出 (cluster / umap / topic)
+# 4. Add unsupervised features (cluster / umap / topic)
 # ============================================================
 def add_unsupervised_features(df: pd.DataFrame, unsup: pd.DataFrame) -> pd.DataFrame:
     print("\n--- Step 4: Adding unsupervised features ---")
@@ -235,7 +238,7 @@ def add_unsupervised_features(df: pd.DataFrame, unsup: pd.DataFrame) -> pd.DataF
     if n_missing > 0:
         print(f"  WARN: {n_missing} games missing from unsup (will use defaults)")
 
-    # Cluster one-hot (drop_first 防止线性模型共线)
+    # Cluster one-hot (drop_first to avoid collinearity in linear models)
     if INCLUDE_CLUSTER and "cluster_id" in df.columns:
         cluster_dummies = pd.get_dummies(
             df["cluster_id"].fillna(-1).astype(int),
@@ -251,7 +254,7 @@ def add_unsupervised_features(df: pd.DataFrame, unsup: pd.DataFrame) -> pd.DataF
         df = df.drop(columns=["cluster_id"], errors="ignore")
         print("  cluster: SKIPPED")
 
-    # UMAP 坐标
+    # UMAP coordinates
     if INCLUDE_UMAP and "umap_x" in df.columns:
         df["umap_x"] = pd.to_numeric(df["umap_x"], errors="coerce").fillna(0)
         df["umap_y"] = pd.to_numeric(df["umap_y"], errors="coerce").fillna(0)
@@ -260,7 +263,7 @@ def add_unsupervised_features(df: pd.DataFrame, unsup: pd.DataFrame) -> pd.DataF
         df = df.drop(columns=["umap_x", "umap_y"], errors="ignore")
         print("  umap coords: SKIPPED")
 
-    # LDA topics (drop 1 个避免概率和=1 的共线)
+    # LDA topics (drop one to avoid the simplex-sum-to-1 collinearity)
     topic_cols = [f"topic_{i}" for i in range(N_TOPICS)]
     if INCLUDE_TOPICS:
         for c in topic_cols:
@@ -277,12 +280,12 @@ def add_unsupervised_features(df: pd.DataFrame, unsup: pd.DataFrame) -> pd.DataF
 
 
 # ============================================================
-# 5. Drop 中间列, 输出干净的 features dataframe
+# 5. Drop intermediate columns; produce a clean features DataFrame
 # ============================================================
 def cleanup_features(features: pd.DataFrame) -> pd.DataFrame:
-    """删除任何不该进 X 的列 (只保留 appid + 数值特征)."""
+    """Remove anything that should not enter X (keep appid + numeric features only)."""
     drop_keywords = (
-        # post-release 字段, 万一前面忘了排
+        # post-release fields, in case any survived earlier filtering
         "positive",
         "negative",
         "userscore",
@@ -307,7 +310,7 @@ def cleanup_features(features: pd.DataFrame) -> pd.DataFrame:
 
 
 # ============================================================
-# 6. Target / Meta 切出来 + 对齐
+# 6. Split out target / meta + align rows
 # ============================================================
 def split_target_and_meta(features: pd.DataFrame, df_full: pd.DataFrame):
     print("\n--- Step 6: Splitting target / meta + dropping NaN target rows ---")
@@ -323,7 +326,7 @@ def split_target_and_meta(features: pd.DataFrame, df_full: pd.DataFrame):
     n_after = len(features)
     print(f"  rows: {n_before} -> {n_after}  (dropped {n_before - n_after} with NaN target)")
 
-    # 对齐 target 顺序
+    # Align target row order
     target = target[target["appid"].isin(valid_appids)]
     target = target.set_index("appid").loc[features["appid"]].reset_index()
     target["is_successful"] = target["is_successful"].astype(int)

@@ -1,33 +1,39 @@
 """
-clean_data.py — 把 collect_data.py 抓下来的 5 个 raw 文件合并清洗成一张干净表
+clean_data.py — Merge the 5 raw files produced by collect_data.py into a
+single tidy table.
 
-输入 (来自 data/raw/):
-    - steam_details.jsonl        Steam 官方 API 详情 (price, release_date, developers, genres...)
-    - steamspy.csv               SteamSpy 玩家统计 (positive/negative 评论数, owners 区间, tags)
-    - scraped/store_pages.jsonl  商店页面爬的 (description, user_tags, n_screenshots)
-    - scraped/reviews.jsonl      用户评论原文
+Inputs (from data/raw/):
+    - steam_details.jsonl        Official Steam API details
+                                 (price, release_date, developers, genres, ...)
+    - steamspy.csv               SteamSpy stats (positive/negative counts,
+                                 owner ranges, tags)
+    - scraped/store_pages.jsonl  Scraped store pages (description, user tags,
+                                 screenshot count)
+    - scraped/reviews.jsonl      Raw user reviews
 
-输出 (到 data/interim/):
-    - cleaned.csv                每行一款游戏, 所有字段清洗好 (全量 999 行)
+Output (to data/interim/):
+    - cleaned.csv                One row per game, all columns cleaned (~999 rows)
 
-注意: list/dict 列 (genres, categories, developers, publishers, tag_dict) 在 CSV 里
-以 JSON 字符串存储。下游脚本读回时要用:
+Note: list / dict columns (genres, categories, developers, publishers, tag_dict)
+are stored as JSON strings in the CSV. To read them back downstream:
+
     import json
     df = pd.read_csv("data/interim/cleaned.csv")
     for col in ["genres", "categories", "developers", "publishers", "tag_dict"]:
         df[col] = df[col].fillna("[]").apply(json.loads)
 
-运行:
+Usage:
     pip install pandas
-    python clean_data.py
+    python src/clean_data.py
 
-这一步只做"清洗", 不做 feature engineering (TF-IDF / tag 聚类之类):
-    - 把 price 从 cents -> dollars
-    - 把 release_date 字符串 -> datetime
-    - 把嵌套的 genres/categories/platforms 拍平成 list
-    - 解析 SteamSpy 的 owners 区间 "2,000,000 .. 5,000,000" -> min/max
-    - 解析 SteamSpy 的 tags 字符串 -> dict
-    - 打 target 标签 is_successful
+This step only does *cleaning*, no feature engineering (no TF-IDF, no tag
+clustering). The transforms are:
+    - Convert price from cents to dollars
+    - Convert release_date strings to datetime
+    - Flatten nested genres / categories / platforms into lists
+    - Parse SteamSpy owner ranges "2,000,000 .. 5,000,000" -> (min, max)
+    - Parse SteamSpy tag strings -> dict
+    - Compute the target label `is_successful`
 """
 from __future__ import annotations
 
@@ -40,7 +46,7 @@ import pandas as pd
 
 
 # ============================================================
-# 路径
+# Paths
 # ============================================================
 RAW_DIR = Path("data/raw")
 INTERIM_DIR = Path("data/interim")
@@ -52,10 +58,10 @@ REVIEWS = RAW_DIR / "scraped" / "reviews.jsonl"
 
 
 # ============================================================
-# 工具函数
+# Helpers
 # ============================================================
 def read_jsonl(path: Path) -> list[dict]:
-    """读 jsonl, 每行一个 JSON 对象。"""
+    """Read a JSONL file (one JSON object per line)."""
     rows = []
     with path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -70,12 +76,12 @@ def read_jsonl(path: Path) -> list[dict]:
 
 
 def strip_html(text: str | None) -> str:
-    """粗暴把 <html> 标签去掉, 留纯文本。"""
+    """Strip HTML tags and collapse whitespace down to plain text."""
     if not text:
         return ""
-    # 去 tag
+    # Drop tags
     text = re.sub(r"<[^>]+>", " ", text)
-    # 压缩空白
+    # Collapse whitespace
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
@@ -99,9 +105,9 @@ def parse_owners_range(s: str | None) -> tuple[int | None, int | None]:
 
 def parse_tag_dict(s: str | None) -> dict[str, int]:
     """
-    SteamSpy 的 tags 列在 csv 里是 python dict 的字符串形式, 比如
-    "{'Adventure': 1883, 'Indie': 912, ...}"
-    用 ast.literal_eval 安全地解析。
+    SteamSpy stores its tag column as a Python-dict string in the CSV, e.g.
+        "{'Adventure': 1883, 'Indie': 912, ...}"
+    Use ast.literal_eval to parse it safely.
     """
     if not isinstance(s, str) or not s.strip():
         return {}
@@ -115,7 +121,7 @@ def parse_tag_dict(s: str | None) -> dict[str, int]:
 
 
 def parse_release_date(raw: dict | None) -> pd.Timestamp | None:
-    """Steam API 返回的 release_date 是 {'coming_soon': bool, 'date': 'Feb 9, 2016'}。"""
+    """Steam API returns release_date as {'coming_soon': bool, 'date': 'Feb 9, 2016'}."""
     if not isinstance(raw, dict):
         return None
     date_str = raw.get("date", "")
@@ -129,13 +135,14 @@ def parse_release_date(raw: dict | None) -> pd.Timestamp | None:
 
 def count_supported_languages(lang_str: str | None) -> int:
     """
-    Steam API 的 supported_languages 是 HTML 字符串, 语言用逗号分隔。
-    '<strong>*</strong>' 之类的标记要去掉。
+    Steam API's supported_languages is an HTML string with comma-separated
+    language names. Strip out markup like '<strong>*</strong>' and footnotes
+    before splitting.
     """
     if not isinstance(lang_str, str):
         return 0
     clean = strip_html(lang_str)
-    # 去掉星号 + 注释
+    # Drop asterisks + footnote text
     clean = re.sub(r"\*", "", clean)
     clean = re.sub(r"languages with full audio support", "", clean, flags=re.I)
     parts = [p.strip() for p in clean.split(",") if p.strip()]
@@ -143,7 +150,7 @@ def count_supported_languages(lang_str: str | None) -> int:
 
 
 # ============================================================
-# Step 1: 读 Steam 官方 API 详情 (steam_details.jsonl)
+# Step 1: Load Steam official-API details (steam_details.jsonl)
 # ============================================================
 def load_steam_details() -> pd.DataFrame:
     print(f"[1/5] Loading {STEAM_DETAILS}...")
@@ -154,7 +161,7 @@ def load_steam_details() -> pd.DataFrame:
         if appid is None:
             continue
 
-        # 价格: price_overview.initial 是 cents. is_free=True 就是 0.
+        # Price: price_overview.initial is in cents. is_free=True implies 0.
         price_overview = r.get("price_overview") or {}
         if r.get("is_free"):
             price_usd = 0.0
@@ -162,31 +169,31 @@ def load_steam_details() -> pd.DataFrame:
             initial_cents = price_overview.get("initial")
             price_usd = (initial_cents / 100.0) if isinstance(initial_cents, (int, float)) else None
 
-        # 平台
+        # Platforms
         platforms = r.get("platforms") or {}
 
         # genres / categories
         genres = [g.get("description", "") for g in (r.get("genres") or []) if isinstance(g, dict)]
         categories = [c.get("description", "") for c in (r.get("categories") or []) if isinstance(c, dict)]
 
-        # metacritic
+        # Metacritic
         metacritic = (r.get("metacritic") or {}).get("score")
 
-        # 成就
+        # Achievements
         achievements = (r.get("achievements") or {}).get("total") or 0
 
-        # 媒体数量
+        # Media counts
         n_screenshots = len(r.get("screenshots") or [])
         n_movies = len(r.get("movies") or [])
 
-        # 发售日
+        # Release date
         release_date = parse_release_date(r.get("release_date"))
         coming_soon = (r.get("release_date") or {}).get("coming_soon", False)
 
-        # DLC 数量
+        # DLC count
         n_dlc = len(r.get("dlc") or [])
 
-        # 开发商 / 发行商
+        # Developer / publisher
         developers = r.get("developers") or []
         publishers = r.get("publishers") or []
 
@@ -213,7 +220,7 @@ def load_steam_details() -> pd.DataFrame:
             "developers": developers,
             "publishers": publishers,
             "short_description": r.get("short_description"),
-            "detailed_description_raw": r.get("detailed_description"),  # 留 raw, 之后可能 re-clean
+            "detailed_description_raw": r.get("detailed_description"),  # keep raw for possible re-cleaning
             "recommendations_total": (r.get("recommendations") or {}).get("total"),
         })
 
@@ -223,27 +230,27 @@ def load_steam_details() -> pd.DataFrame:
 
 
 # ============================================================
-# Step 2: 读 SteamSpy (steamspy.csv)
+# Step 2: Load SteamSpy stats (steamspy.csv)
 # ============================================================
 def load_steamspy() -> pd.DataFrame:
     print(f"[2/5] Loading {STEAMSPY_CSV}...")
     df = pd.read_csv(STEAMSPY_CSV)
 
-    # owners 区间拆成两列
+    # Split owner range into two columns + a midpoint
     owners_parsed = df["owners"].apply(parse_owners_range)
     df["owners_min"] = owners_parsed.apply(lambda t: t[0])
     df["owners_max"] = owners_parsed.apply(lambda t: t[1])
     df["owners_mid"] = (df["owners_min"].fillna(0) + df["owners_max"].fillna(0)) / 2
 
-    # tag 字典
+    # Tag dictionary
     df["tag_dict"] = df["tags"].apply(parse_tag_dict)
     df["n_tags"] = df["tag_dict"].apply(len)
 
-    # price 也是 cents, 转成 dollar
+    # Prices are also in cents — convert to dollars
     df["steamspy_price_usd"] = pd.to_numeric(df["price"], errors="coerce") / 100.0
     df["steamspy_initialprice_usd"] = pd.to_numeric(df["initialprice"], errors="coerce") / 100.0
 
-    # 只留我们真需要的列, 其他 drop
+    # Keep only the columns we actually use; drop the rest
     keep_cols = [
         "appid",
         "developer", "publisher",
@@ -264,7 +271,7 @@ def load_steamspy() -> pd.DataFrame:
 
 
 # ============================================================
-# Step 3: 读商店页面爬的内容 (store_pages.jsonl)
+# Step 3: Load scraped store pages (store_pages.jsonl)
 # ============================================================
 def load_store_pages() -> pd.DataFrame:
     print(f"[3/5] Loading {STORE_PAGES}...")
@@ -274,7 +281,7 @@ def load_store_pages() -> pd.DataFrame:
         return df
     df["appid"] = df["appid"].astype(int)
 
-    # description 已经是纯文本 (scraper 里 get_text 过)
+    # Description is already plain text (the scraper already called get_text).
     df["description_len_chars"] = df["description"].fillna("").str.len()
     df["description_len_words"] = df["description"].fillna("").str.split().str.len()
 
@@ -288,7 +295,7 @@ def load_store_pages() -> pd.DataFrame:
 
 
 # ============================================================
-# Step 4: 读评论 (reviews.jsonl)
+# Step 4: Load reviews (reviews.jsonl)
 # ============================================================
 def load_reviews() -> pd.DataFrame:
     print(f"[4/5] Loading {REVIEWS}...")
@@ -298,7 +305,7 @@ def load_reviews() -> pd.DataFrame:
         return df
     df["appid"] = df["appid"].astype(int)
 
-    # 评论列表就先留着 (NLP 用), 另外存一些聚合特征
+    # Keep the raw review list (for downstream NLP) and also add a few aggregates.
     df["n_reviews_scraped"] = df["reviews"].apply(lambda lst: len(lst) if isinstance(lst, list) else 0)
     df["avg_review_len"] = df["reviews"].apply(
         lambda lst: (sum(len(r) for r in lst) / len(lst)) if isinstance(lst, list) and lst else 0
@@ -308,7 +315,7 @@ def load_reviews() -> pd.DataFrame:
 
 
 # ============================================================
-# Step 5: 合并 + 打 target 标签
+# Step 5: Merge + label the target
 # ============================================================
 def merge_all(
     details: pd.DataFrame,
@@ -323,72 +330,73 @@ def merge_all(
     if not reviews.empty:
         df = df.merge(reviews, on="appid", how="left")
 
-    # ---------- 清洗 ----------
-    # 只留 type == 'game' (collect_data.py 应该已经过滤, 双保险)
+    # ---------- Cleaning ----------
+    # Keep type == 'game' only (collect_data.py should have filtered, but
+    # this is a safety net).
     if "type" in df.columns:
         df = df[df["type"] == "game"].copy()
 
-    # 去掉还没发售 / 没 release_date 的
+    # Drop rows that haven't released yet / have no release date.
     df = df[df["coming_soon"] != True].copy()
 
-    # 把一些能填 0 的缺失填 0
+    # Fill safe-zero columns with 0
     for col in ["n_achievements", "n_dlc", "n_screenshots_api", "n_movies",
                 "n_screenshots_scraped", "n_reviews_scraped", "avg_review_len",
                 "positive", "negative"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-    # required_age 在 Steam API 里有时是 int (0) 有时是 str ("17"), 统一转 int
+    # required_age comes through as int (0) sometimes, str ("17") other times — normalize.
     if "required_age" in df.columns:
         df["required_age"] = pd.to_numeric(df["required_age"], errors="coerce").fillna(0).astype(int)
 
-    # metacritic_score 也可能混类型
+    # metacritic_score may have mixed types
     if "metacritic_score" in df.columns:
         df["metacritic_score"] = pd.to_numeric(df["metacritic_score"], errors="coerce")
 
-    # recommendations_total 同理
+    # recommendations_total likewise
     if "recommendations_total" in df.columns:
         df["recommendations_total"] = pd.to_numeric(df["recommendations_total"], errors="coerce")
 
-    # userscore / ccu / average_forever 等 SteamSpy 数值列
+    # SteamSpy numeric columns
     for col in ["userscore", "ccu", "average_forever", "average_2weeks",
                 "median_forever", "median_2weeks", "owners_min", "owners_max", "owners_mid"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # 价格: 如果 Steam API 没拿到, 用 SteamSpy 兜底
+    # Price: fall back to SteamSpy's value if the Steam API didn't return one.
     df["price_usd"] = df["price_usd"].fillna(df["steamspy_price_usd"])
     df["price_usd"] = pd.to_numeric(df["price_usd"], errors="coerce")
 
-    # ---------- 打 target ----------
-    # 总评论数 = positive + negative
+    # ---------- Target ----------
+    # Total reviews = positive + negative
     df["total_reviews"] = df["positive"] + df["negative"]
-    # 好评率 = positive / total
+    # Positive ratio = positive / total
     df["positive_review_ratio"] = df.apply(
         lambda r: (r["positive"] / r["total_reviews"]) if r["total_reviews"] > 0 else None,
         axis=1,
     )
-    # is_successful: 好评率 >= 80% 且 total_reviews >= 500
+    # is_successful: positive ratio >= 80% AND total_reviews >= 500
     df["is_successful"] = (
         (df["positive_review_ratio"] >= 0.80)
         & (df["total_reviews"] >= 500)
-    ).astype("Int64")  # 可空整数
+    ).astype("Int64")  # nullable integer
 
-    # 如果 total_reviews == 0, 认为数据不足, target 置 NA
+    # If total_reviews == 0, treat the row as having insufficient signal.
     df.loc[df["total_reviews"] == 0, "is_successful"] = pd.NA
 
-    # ---------- 派生时间字段 ----------
+    # ---------- Derived time features ----------
     df["release_year"] = df["release_date"].dt.year
     df["release_month"] = df["release_date"].dt.month
     df["release_quarter"] = df["release_date"].dt.quarter
-    df["release_dow"] = df["release_date"].dt.dayofweek  # Monday=0
+    df["release_dow"] = df["release_date"].dt.dayofweek  # Monday = 0
 
     print(f"       -> merged: {len(df):,} rows x {df.shape[1]} cols")
     return df
 
 
 # ============================================================
-# 主流程
+# Main entry point
 # ============================================================
 def main():
     INTERIM_DIR.mkdir(parents=True, exist_ok=True)
@@ -400,7 +408,7 @@ def main():
 
     df = merge_all(details, steamspy, store, reviews)
 
-    # ---------- 摘要 ----------
+    # ---------- Summary ----------
     print("\n================ Summary ================")
     print(f"Total games:         {len(df):,}")
     if "is_successful" in df.columns:
@@ -414,12 +422,13 @@ def main():
     print("\nTop 10 columns by missing %:")
     print((missing * 100).round(1).astype(str) + "%")
 
-    # ---------- 保存 ----------
-    # 统一用 CSV. list/dict 字段序列化成 JSON 字符串, 下游用 json.loads 还原。
+    # ---------- Save ----------
+    # Single CSV. list/dict fields are JSON-serialized; downstream code should
+    # call json.loads to restore them.
     out_csv = INTERIM_DIR / "cleaned.csv"
 
     out_df = df.copy()
-    # 识别哪些列是 list/dict, 转成 JSON 字符串
+    # Detect list / dict columns and serialize them as JSON strings.
     list_dict_cols = []
     for col in out_df.columns:
         if out_df[col].apply(lambda x: isinstance(x, (list, dict))).any():
@@ -433,7 +442,7 @@ def main():
     print(f"\nSaved:")
     print(f"  {out_csv}   ({len(df):,} rows x {df.shape[1]} cols)")
     if list_dict_cols:
-        print(f"\nlist/dict 列已序列化成 JSON 字符串, 下游读回时请做:")
+        print(f"\nlist/dict columns were JSON-encoded; downstream readers should use:")
         print(f"  import json")
         print(f"  df = pd.read_csv('{out_csv}')")
         print(f"  for col in {list_dict_cols}:")
